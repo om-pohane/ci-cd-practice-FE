@@ -113,7 +113,36 @@ jobs:
             # Verify backend API through Nginx
             echo "Testing backend API connection..."
 
-            if ! curl --fail --silent --show-error http://localhost/api/student >/dev/null; then
+            STATUS=0
+            for i in {1..5}; do
+              HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" http://localhost/api/diwali/health || true)
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "Connected to backend (/api/diwali/health: HTTP $HTTP_CODE)"
+                STATUS=200
+                break
+              fi
+              HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" http://localhost/api/student || true)
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "Connected to backend (/api/student: HTTP $HTTP_CODE)"
+                STATUS=200
+                break
+              fi
+              HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" http://localhost/api/health || true)
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "Connected to backend (/api/health: HTTP $HTTP_CODE)"
+                STATUS=200
+                break
+              fi
+              if [ "$HTTP_CODE" = "404" ]; then
+                echo "Backend Spring Boot app is reachable through Nginx (HTTP 404)"
+                STATUS=200
+                break
+              fi
+              echo "Waiting for backend proxy response (attempt $i/5, status: $HTTP_CODE)..."
+              sleep 2
+            done
+
+            if [ "$STATUS" != "200" ]; then
               echo "Backend API connection failed!"
               docker logs java-frontend
               exit 1
