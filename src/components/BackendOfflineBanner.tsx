@@ -16,10 +16,10 @@ export const BackendOfflineBanner: FC<BackendOfflineBannerProps> = ({
         <AlertCircleIcon size={24} />
       </div>
       <div className="offline-banner-content">
-        <h4 className="offline-banner-title">Backend API Disconnected</h4>
+        <h4 className="offline-banner-title">Arena Server Disconnected</h4>
         <p className="offline-banner-text">
-          Could not communicate with the Spring Boot server at{' '}
-          <code>http://localhost:8080/api/student</code>.
+          Could not communicate with the BotClash Spring Boot server at{' '}
+          <code>http://localhost:8080/api/bots</code>.
         </p>
         <div className="offline-troubleshoot">
           <span>Quick check:</span>

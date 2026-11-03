@@ -1,36 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './services/api'
 import { ThemeProvider } from './context/ThemeContext'
 import { RouterProvider } from './router/Router'
 import { useRouter } from './router/RouterContext'
-import { matchRoutePattern } from './router/router-utils'
-import type { Student, StudentInput, Toast } from './types/student'
+import type { CombatBot, CombatBotInput, Toast } from './types/bot'
 
 // Layout Components
 import { Sidebar } from './components/Sidebar'
 import { Header } from './components/Header'
-import { GlobalSearchModal } from './components/GlobalSearchModal'
 import { ToastContainer } from './components/ToastContainer'
-import { DeleteConfirmModal } from './components/DeleteConfirmModal'
 import { BackendOfflineBanner } from './components/BackendOfflineBanner'
 
 // Pages
-import { DashboardPage } from './pages/DashboardPage'
-import { StudentsPage } from './pages/StudentsPage'
-import { StudentDetailPage } from './pages/StudentDetailPage'
-import { StudentFormPage } from './pages/StudentFormPage'
-import { CoursesPage } from './pages/CoursesPage'
-import { RecycleBinPage } from './pages/RecycleBinPage'
-import { AnalyticsPage } from './pages/AnalyticsPage'
-import { SettingsPage } from './pages/SettingsPage'
+import { ArenaDuelPage } from './pages/ArenaDuelPage'
+import { MechHangarPage } from './pages/MechHangarPage'
+import { MechForgePage } from './pages/MechForgePage'
+import { LeaderboardPage } from './pages/LeaderboardPage'
+import { ScrapyardPage } from './pages/ScrapyardPage'
+import { ArenaSettingsPage } from './pages/ArenaSettingsPage'
 
 import './App.css'
 
 function AppContent() {
   const { path, navigate } = useRouter()
 
-  const [activeStudents, setActiveStudents] = useState<Student[]>([])
-  const [deletedStudents, setDeletedStudents] = useState<Student[]>([])
+  const [activeBots, setActiveBots] = useState<CombatBot[]>([])
+  const [scrappedBots, setScrappedBots] = useState<CombatBot[]>([])
   const [loading, setLoading] = useState(true)
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null)
   const [checkingConnection, setCheckingConnection] = useState(false)
@@ -38,14 +33,6 @@ function AppContent() {
   // Layout UI state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false)
-
-  // Delete modal state
-  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  // Search by course state
-  const [isSearchingBackendCourse, setIsSearchingBackendCourse] = useState(false)
 
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -65,25 +52,25 @@ function AppContent() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  // Load data
-  const loadData = useCallback(
+  // Load all bots from backend
+  const loadBots = useCallback(
     async (isSilent = false) => {
       if (!isSilent) setLoading(true)
       setCheckingConnection(true)
 
       try {
-        const [activeList, deletedList] = await Promise.all([
-          api.getAllStudents(),
-          api.getDeletedStudents(),
+        const [activeList, scrappedList] = await Promise.all([
+          api.getAllBots(),
+          api.getScrappedBots(),
         ])
-        setActiveStudents(Array.isArray(activeList) ? activeList : [])
-        setDeletedStudents(Array.isArray(deletedList) ? deletedList : [])
+        setActiveBots(Array.isArray(activeList) ? activeList : [])
+        setScrappedBots(Array.isArray(scrappedList) ? scrappedList : [])
         setBackendConnected(true)
       } catch (err: unknown) {
         setBackendConnected(false)
         const msg = err instanceof Error ? err.message : 'Failed to connect to backend'
         if (!isSilent) {
-          addToast('error', 'Connection Error', msg)
+          addToast('error', 'Arena Server Disconnected', msg)
         }
       } finally {
         setLoading(false)
@@ -93,18 +80,18 @@ function AppContent() {
     [addToast],
   )
 
-  // Initial load on mount
+  // Initial fetch on mount
   useEffect(() => {
     let ignore = false
     async function init() {
       try {
-        const [activeList, deletedList] = await Promise.all([
-          api.getAllStudents(),
-          api.getDeletedStudents(),
+        const [activeList, scrappedList] = await Promise.all([
+          api.getAllBots(),
+          api.getScrappedBots(),
         ])
         if (!ignore) {
-          setActiveStudents(Array.isArray(activeList) ? activeList : [])
-          setDeletedStudents(Array.isArray(deletedList) ? deletedList : [])
+          setActiveBots(Array.isArray(activeList) ? activeList : [])
+          setScrappedBots(Array.isArray(scrappedList) ? scrappedList : [])
           setBackendConnected(true)
         }
       } catch {
@@ -123,117 +110,73 @@ function AppContent() {
     }
   }, [])
 
-  // Cmd+K shortcut
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setIsGlobalSearchOpen((prev) => !prev)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
-
-  // Available courses
-  const availableCourses = useMemo(() => {
-    const set = new Set<string>()
-    activeStudents.forEach((s) => s.course && set.add(s.course))
-    deletedStudents.forEach((s) => s.course && set.add(s.course))
-    return Array.from(set).sort()
-  }, [activeStudents, deletedStudents])
-
-  // Save student (create or update)
-  const handleSaveStudent = async (studentData: StudentInput, id?: number): Promise<Student> => {
+  // Save Mech (Forge or Upgrade)
+  const handleSaveBot = async (data: CombatBotInput, id?: number): Promise<CombatBot> => {
     if (id) {
-      const updated = await api.updateStudent(id, studentData)
-      setActiveStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
-      addToast('success', 'Student Updated', `${updated.name} updated successfully.`)
+      const updated = await api.updateBot(id, data)
+      setActiveBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
+      addToast('success', 'Mech Upgraded', `${updated.name} calibrated for combat!`)
       return updated
     } else {
-      const created = await api.createStudent(studentData)
-      setActiveStudents((prev) => [created, ...prev])
-      addToast('success', 'Student Enrolled', `${created.name} registered with ID #${created.id}.`)
+      const created = await api.createBot(data)
+      setActiveBots((prev) => [created, ...prev])
+      addToast('success', 'Mech Forged', `${created.name} deployed to Hangar!`)
       return created
     }
   }
 
-  // Soft delete confirm
-  const handleConfirmDelete = async () => {
-    if (!studentToDelete) return
-    setIsDeleting(true)
+  // Decommission bot into Scrapyard
+  const handleScrapBot = async (bot: CombatBot) => {
     try {
-      await api.deleteStudent(studentToDelete.id)
-      const deletedItem = { ...studentToDelete, deleted: true }
-      setActiveStudents((prev) => prev.filter((s) => s.id !== studentToDelete.id))
-      setDeletedStudents((prev) => [deletedItem, ...prev])
-      addToast('info', 'Student Soft Deleted', `${studentToDelete.name} moved to Recycle Bin.`)
-      setStudentToDelete(null)
+      await api.scrapBot(bot.id)
+      const scrapped = { ...bot, scrapped: true, status: 'SCRAPPED' as const }
+      setActiveBots((prev) => prev.filter((b) => b.id !== bot.id))
+      setScrappedBots((prev) => [scrapped, ...prev])
+      addToast('info', 'Mech Scrapped', `${bot.name} decommissioned into the Scrapyard.`)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete student'
-      addToast('error', 'Delete Failed', msg)
-    } finally {
-      setIsDeleting(false)
+      const msg = err instanceof Error ? err.message : 'Failed to scrap mech'
+      addToast('error', 'Scrap Failed', msg)
     }
   }
 
-  // Restore student
-  const handleRestoreStudent = async (student: Student) => {
+  // Nano-repair bot from Scrapyard
+  const handleRepairBot = async (bot: CombatBot) => {
     try {
-      const restored = await api.restoreStudent(student.id)
-      setDeletedStudents((prev) => prev.filter((s) => s.id !== student.id))
-      setActiveStudents((prev) => [restored, ...prev])
-      addToast('success', 'Student Restored', `${restored.name} restored to active directory.`)
+      const repaired = await api.repairBot(bot.id)
+      setScrappedBots((prev) => prev.filter((b) => b.id !== bot.id))
+      setActiveBots((prev) => [repaired, ...prev])
+      addToast('success', 'Mech Rebuilt', `${repaired.name} restored to full combat health!`)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to restore student'
-      addToast('error', 'Restore Failed', msg)
+      const msg = err instanceof Error ? err.message : 'Failed to repair mech'
+      addToast('error', 'Repair Failed', msg)
     }
   }
 
-  // Search by course (backend endpoint)
-  const handleSearchByCourse = async (courseName: string) => {
-    if (!courseName.trim()) {
-      setIsSearchingBackendCourse(false)
-      loadData(true)
-      return
-    }
-    setLoading(true)
-    setIsSearchingBackendCourse(true)
+  // Seed preset champions
+  const handleSeedBots = async () => {
     try {
-      const results = await api.getStudentsByCourse(courseName)
-      setActiveStudents(results)
-      addToast(
-        'info',
-        'Course Filter Applied',
-        `Retrieved ${results.length} active students in "${courseName}"`,
-      )
+      const seeded = await api.seedChampions()
+      setActiveBots(seeded)
+      addToast('success', 'Champions Summoned', '6 legendary combat mechs spawned in the arena!')
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to search by course'
-      addToast('error', 'Course Search Failed', msg)
-    } finally {
-      setLoading(false)
+      const msg = err instanceof Error ? err.message : 'Failed to seed champions'
+      addToast('error', 'Summon Failed', msg)
     }
   }
-
-  // Route matches
-  const matchDetail = matchRoutePattern('/students/:id', path)
-  const matchEdit = matchRoutePattern('/students/:id/edit', path)
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
-      {/* Top Loading Progress Line */}
       {loading && <div className="global-top-progress" />}
 
-      {/* Sidebar */}
+      {/* Sidebar Navigation */}
       <Sidebar
-        activeCount={activeStudents.length}
-        deletedCount={deletedStudents.length}
-        courseCount={availableCourses.length}
+        activeCount={activeBots.length}
+        scrappedCount={scrappedBots.length}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
       />
 
-      {/* Mobile Sidebar Backdrop */}
+      {/* Mobile Backdrop */}
       {mobileSidebarOpen && (
         <div
           className="mobile-sidebar-backdrop"
@@ -241,13 +184,12 @@ function AppContent() {
         />
       )}
 
-      {/* Main Content Area */}
+      {/* Main Viewport */}
       <div className="app-main-viewport">
         <Header
           backendConnected={backendConnected}
           checkingConnection={checkingConnection}
-          onRefresh={() => loadData(false)}
-          onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
+          onRefresh={() => loadBots(false)}
           onToggleMobileSidebar={() => setMobileSidebarOpen((prev) => !prev)}
         />
 
@@ -255,81 +197,52 @@ function AppContent() {
           {backendConnected === false && (
             <div style={{ maxWidth: '1240px', margin: '0 auto 20px' }}>
               <BackendOfflineBanner
-                onRetry={() => loadData(false)}
+                onRetry={() => loadBots(false)}
                 isRetrying={checkingConnection}
               />
             </div>
           )}
 
-          {/* Router View Switching */}
-          {path === '/' || path === '' ? (
-            <DashboardPage
-              activeStudents={activeStudents}
-              deletedStudents={deletedStudents}
-              availableCourses={availableCourses}
-              onCreateStudent={async (data) => {
-                await handleSaveStudent(data)
-              }}
+          {/* Route Views */}
+          {path === '/' || path === '' || path === '/arena' ? (
+            <ArenaDuelPage
+              bots={activeBots}
+              onReloadBots={() => loadBots(true)}
+              onSeedBots={handleSeedBots}
             />
-          ) : path === '/students' ? (
-            <StudentsPage
-              students={activeStudents}
-              availableCourses={availableCourses}
-              onDeleteStudent={(s) => setStudentToDelete(s)}
-              onSearchByCourse={handleSearchByCourse}
-              onResetFilters={() => {
-                setIsSearchingBackendCourse(false)
-                loadData(true)
-              }}
-              isSearchingBackendCourse={isSearchingBackendCourse}
+          ) : path === '/hangar' ? (
+            <MechHangarPage
+              bots={activeBots}
+              onScrapBot={handleScrapBot}
+              onSeedBots={handleSeedBots}
             />
-          ) : path === '/students/new' ? (
-            <StudentFormPage
-              availableCourses={availableCourses}
-              onSaveStudent={handleSaveStudent}
-            />
-          ) : matchEdit.match ? (
-            <StudentFormPage
-              id={Number(matchEdit.params.id)}
-              availableCourses={availableCourses}
-              onSaveStudent={handleSaveStudent}
-            />
-          ) : matchDetail.match ? (
-            <StudentDetailPage
-              id={Number(matchDetail.params.id)}
-              onDeleteStudent={(s) => setStudentToDelete(s)}
-              onRestoreStudent={handleRestoreStudent}
-            />
-          ) : path === '/courses' ? (
-            <CoursesPage students={activeStudents} />
-          ) : path === '/recycle-bin' ? (
-            <RecycleBinPage
-              deletedStudents={deletedStudents}
-              onRestoreStudent={handleRestoreStudent}
-              onRefresh={() => loadData(false)}
-            />
-          ) : path === '/analytics' ? (
-            <AnalyticsPage
-              activeStudents={activeStudents}
-              deletedStudents={deletedStudents}
+          ) : path === '/forge' ? (
+            <MechForgePage onSaveBot={handleSaveBot} />
+          ) : path === '/leaderboard' ? (
+            <LeaderboardPage />
+          ) : path === '/scrapyard' ? (
+            <ScrapyardPage
+              scrappedBots={scrappedBots}
+              onRepairBot={handleRepairBot}
+              onRefresh={() => loadBots(false)}
             />
           ) : path === '/settings' ? (
-            <SettingsPage
+            <ArenaSettingsPage
               backendConnected={backendConnected}
               checkingConnection={checkingConnection}
-              onRecheckConnection={() => loadData(true)}
+              onRecheckConnection={() => loadBots(true)}
             />
           ) : (
             <div className="page-container error-page">
               <div className="empty-state">
-                <h2>Page Not Found</h2>
-                <p>The path <code>{path}</code> does not exist.</p>
+                <h2>Sector Not Found</h2>
+                <p>Coordinates <code>{path}</code> are outside the arena perimeter.</p>
                 <button
                   className="btn btn-primary"
                   style={{ marginTop: '14px' }}
                   onClick={() => navigate('/')}
                 >
-                  Return to Dashboard
+                  Return to Colosseum
                 </button>
               </div>
             </div>
@@ -337,23 +250,7 @@ function AppContent() {
         </main>
       </div>
 
-      {/* Global Quick Search (Cmd+K) Modal */}
-      <GlobalSearchModal
-        isOpen={isGlobalSearchOpen}
-        onClose={() => setIsGlobalSearchOpen(false)}
-        students={activeStudents}
-      />
-
-      {/* Delete Confirmation Modal */}
-      <DeleteConfirmModal
-        isOpen={Boolean(studentToDelete)}
-        student={studentToDelete}
-        onClose={() => setStudentToDelete(null)}
-        onConfirm={handleConfirmDelete}
-        isDeleting={isDeleting}
-      />
-
-      {/* Floating Notifications */}
+      {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   )

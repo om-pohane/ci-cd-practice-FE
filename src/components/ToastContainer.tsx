@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import type { Toast } from '../types/student'
+import type { Toast } from '../types/bot'
 import { AlertCircleIcon, AlertTriangleIcon, CheckIcon, CloseIcon } from './Icons'
 
 interface ToastContainerProps {

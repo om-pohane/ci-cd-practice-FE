@@ -1,21 +1,22 @@
-import type { FC, ReactNode } from 'react'
+import { useState, type FC, type ReactNode } from 'react'
 import {
-  BarChartIcon,
-  BookOpenIcon,
-  GraduationCapIcon,
-  LayoutDashboardIcon,
+  CpuIcon,
+  FlameIcon,
   SettingsIcon,
-  TrashIcon,
-  UserPlusIcon,
-  UsersIcon,
+  SkullIcon,
+  SwordsIcon,
+  TrophyIcon,
+  Volume2Icon,
+  VolumeXIcon,
+  WrenchIcon,
 } from './Icons'
 import { Link } from '../router/Router'
 import { useRouter } from '../router/RouterContext'
+import { sounds } from '../utils/sound'
 
 interface SidebarProps {
   activeCount: number
-  deletedCount: number
-  courseCount: number
+  scrappedCount: number
   collapsed: boolean
   onToggleCollapse: () => void
 }
@@ -25,64 +26,65 @@ interface NavItem {
   path: string
   icon: ReactNode
   badge?: number
-  badgeType?: 'primary' | 'danger' | 'info'
+  badgeType?: 'primary' | 'danger' | 'warning'
 }
 
 export const Sidebar: FC<SidebarProps> = ({
   activeCount,
-  deletedCount,
-  courseCount,
+  scrappedCount,
   collapsed,
   onToggleCollapse,
 }) => {
   const { path } = useRouter()
+  const [isMuted, setIsMuted] = useState(() => sounds.isMuted())
+
+  const handleToggleSound = () => {
+    const updated = sounds.toggleMute()
+    setIsMuted(updated)
+    if (!updated) {
+      sounds.playAttackSound()
+    }
+  }
 
   const navItems: NavItem[] = [
     {
-      label: 'Dashboard',
+      label: 'Arena Colosseum',
       path: '/',
-      icon: <LayoutDashboardIcon size={18} />,
+      icon: <SwordsIcon size={18} />,
     },
     {
-      label: 'Students',
-      path: '/students',
-      icon: <UsersIcon size={18} />,
+      label: 'Mech Hangar',
+      path: '/hangar',
+      icon: <CpuIcon size={18} />,
       badge: activeCount,
       badgeType: 'primary',
     },
     {
-      label: 'Register New',
-      path: '/students/new',
-      icon: <UserPlusIcon size={18} />,
+      label: 'Mech Forge',
+      path: '/forge',
+      icon: <WrenchIcon size={18} />,
     },
     {
-      label: 'Courses',
-      path: '/courses',
-      icon: <BookOpenIcon size={18} />,
-      badge: courseCount,
-      badgeType: 'info',
+      label: 'Hall of Fame',
+      path: '/leaderboard',
+      icon: <TrophyIcon size={18} />,
     },
     {
-      label: 'Recycle Bin',
-      path: '/recycle-bin',
-      icon: <TrashIcon size={18} />,
-      badge: deletedCount,
+      label: 'Scrapyard',
+      path: '/scrapyard',
+      icon: <SkullIcon size={18} />,
+      badge: scrappedCount,
       badgeType: 'danger',
     },
     {
-      label: 'Analytics',
-      path: '/analytics',
-      icon: <BarChartIcon size={18} />,
-    },
-    {
-      label: 'Settings & API',
+      label: 'Arena System',
       path: '/settings',
       icon: <SettingsIcon size={18} />,
     },
   ]
 
   const isActive = (itemPath: string) => {
-    if (itemPath === '/') return path === '/' || path === ''
+    if (itemPath === '/') return path === '/' || path === '' || path === '/arena'
     return path.startsWith(itemPath)
   }
 
@@ -90,13 +92,13 @@ export const Sidebar: FC<SidebarProps> = ({
     <aside className={`app-sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <div className="sidebar-header">
         <Link to="/" className="sidebar-brand">
-          <div className="sidebar-logo">
-            <GraduationCapIcon size={22} />
+          <div className="sidebar-logo cyber-glow">
+            <FlameIcon size={22} />
           </div>
           {!collapsed && (
             <div className="sidebar-title-wrap">
-              <span className="sidebar-title">EduPortal</span>
-              <span className="sidebar-subtitle">Spring + React CRUD</span>
+              <span className="sidebar-title">BOTCLASH</span>
+              <span className="sidebar-subtitle">CYBER-ARENA OS</span>
             </div>
           )}
         </Link>
@@ -116,9 +118,7 @@ export const Sidebar: FC<SidebarProps> = ({
                   <span className="sidebar-link-icon">{item.icon}</span>
                   {!collapsed && <span className="sidebar-link-text">{item.label}</span>}
                   {!collapsed && item.badge !== undefined && item.badge > 0 && (
-                    <span
-                      className={`sidebar-badge sidebar-badge-${item.badgeType || 'primary'}`}
-                    >
+                    <span className={`sidebar-badge sidebar-badge-${item.badgeType || 'primary'}`}>
                       {item.badge}
                     </span>
                   )}
@@ -131,10 +131,18 @@ export const Sidebar: FC<SidebarProps> = ({
 
       <div className="sidebar-footer">
         <button
+          className="sound-toggle-btn"
+          onClick={handleToggleSound}
+          title={isMuted ? 'Unmute Audio SFX' : 'Mute Audio SFX'}
+        >
+          {isMuted ? <VolumeXIcon size={16} /> : <Volume2Icon size={16} />}
+          {!collapsed && <span>{isMuted ? 'SFX Muted' : 'SFX Active'}</span>}
+        </button>
+
+        <button
           className="sidebar-collapse-btn"
           onClick={onToggleCollapse}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label="Toggle sidebar collapse"
+          title={collapsed ? 'Expand menu' : 'Collapse menu'}
         >
           <span className="collapse-arrow">{collapsed ? '→' : '←'}</span>
           {!collapsed && <span className="collapse-text">Collapse Menu</span>}

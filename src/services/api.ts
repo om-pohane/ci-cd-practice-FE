@@ -1,6 +1,6 @@
-import type { Student, StudentInput } from '../types/student'
+import type { CombatBot, CombatBotInput, DuelRequest, DuelResult } from '../types/bot'
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api/student').replace(/\/$/, '')
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api/bots').replace(/\/$/, '')
 
 async function handleResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get('content-type') || ''
@@ -17,7 +17,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
         if (textData) errorMessage = textData
       }
     } catch {
-      // Fallback to initial error message
+      // Fallback
     }
     throw new Error(errorMessage)
   }
@@ -30,73 +30,83 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 export const api = {
   /**
-   * Fetch all active students
+   * Fetch all active battle mechs in the hangar
    */
-  async getAllStudents(): Promise<Student[]> {
+  async getAllBots(): Promise<CombatBot[]> {
     const res = await fetch(`${API_BASE_URL}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
     })
-    return handleResponse<Student[]>(res)
+    return handleResponse<CombatBot[]>(res)
   },
 
   /**
-   * Fetch a single student by ID
+   * Fetch a single combat mech by ID
    */
-  async getStudentById(id: number): Promise<Student> {
+  async getBotById(id: number): Promise<CombatBot> {
     const res = await fetch(`${API_BASE_URL}/${id}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
     })
-    return handleResponse<Student>(res)
+    return handleResponse<CombatBot>(res)
   },
 
   /**
-   * Search active students by course name
+   * Filter mechs by weight class
    */
-  async getStudentsByCourse(course: string): Promise<Student[]> {
-    const encodedCourse = encodeURIComponent(course.trim())
-    const res = await fetch(`${API_BASE_URL}/search?course=${encodedCourse}`, {
+  async getBotsByWeightClass(weightClass: string): Promise<CombatBot[]> {
+    const res = await fetch(`${API_BASE_URL}/weight?class=${encodeURIComponent(weightClass)}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
     })
-    return handleResponse<Student[]>(res)
+    return handleResponse<CombatBot[]>(res)
   },
 
   /**
-   * Create a new student
+   * Filter mechs by weapon type
    */
-  async createStudent(student: StudentInput): Promise<Student> {
+  async getBotsByWeaponType(weaponType: string): Promise<CombatBot[]> {
+    const res = await fetch(`${API_BASE_URL}/weapon?type=${encodeURIComponent(weaponType)}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    })
+    return handleResponse<CombatBot[]>(res)
+  },
+
+  /**
+   * Build/forge a new combat mech
+   */
+  async createBot(bot: CombatBotInput): Promise<CombatBot> {
     const res = await fetch(`${API_BASE_URL}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify(student),
+      body: JSON.stringify(bot),
     })
-    return handleResponse<Student>(res)
+    return handleResponse<CombatBot>(res)
   },
 
   /**
-   * Update existing student by ID
+   * Update/upgrade an existing mech
    */
-  async updateStudent(id: number, student: StudentInput): Promise<Student> {
+  async updateBot(id: number, bot: Partial<CombatBotInput>): Promise<CombatBot> {
     const res = await fetch(`${API_BASE_URL}/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify(student),
+      body: JSON.stringify(bot),
     })
-    return handleResponse<Student>(res)
+    return handleResponse<CombatBot>(res)
   },
 
   /**
-   * Soft-delete student by ID
+   * Decommission/scrap mech into Scrapyard (soft delete)
    */
-  async deleteStudent(id: number): Promise<string> {
+  async scrapBot(id: number): Promise<string> {
     const res = await fetch(`${API_BASE_URL}/${id}`, {
       method: 'DELETE',
     })
@@ -104,29 +114,66 @@ export const api = {
   },
 
   /**
-   * Get all soft-deleted students (Recycle Bin)
+   * Get all scrapped/destroyed mechs in the Scrapyard
    */
-  async getDeletedStudents(): Promise<Student[]> {
-    const res = await fetch(`${API_BASE_URL}/deleted`, {
+  async getScrappedBots(): Promise<CombatBot[]> {
+    const res = await fetch(`${API_BASE_URL}/scrapped`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
     })
-    return handleResponse<Student[]>(res)
+    return handleResponse<CombatBot[]>(res)
   },
 
   /**
-   * Restore a soft-deleted student by ID
+   * Nano-repair & rebuild a scrapped mech
    */
-  async restoreStudent(id: number): Promise<Student> {
-    const res = await fetch(`${API_BASE_URL}/${id}/restore`, {
+  async repairBot(id: number): Promise<CombatBot> {
+    const res = await fetch(`${API_BASE_URL}/${id}/repair`, {
       method: 'PUT',
       headers: { Accept: 'application/json' },
     })
-    return handleResponse<Student>(res)
+    return handleResponse<CombatBot>(res)
   },
 
   /**
-   * Check connection to backend
+   * Fetch top ranking gladiator bots
+   */
+  async getLeaderboard(): Promise<CombatBot[]> {
+    const res = await fetch(`${API_BASE_URL}/leaderboard`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    })
+    return handleResponse<CombatBot[]>(res)
+  },
+
+  /**
+   * Seed preset legendary champions
+   */
+  async seedChampions(): Promise<CombatBot[]> {
+    const res = await fetch(`${API_BASE_URL}/seed`, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    })
+    return handleResponse<CombatBot[]>(res)
+  },
+
+  /**
+   * Run a live simulated battle duel between 2 bots
+   */
+  async executeDuel(request: DuelRequest): Promise<DuelResult> {
+    const res = await fetch(`${API_BASE_URL}/duel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(request),
+    })
+    return handleResponse<DuelResult>(res)
+  },
+
+  /**
+   * Check connection to Spring Boot backend
    */
   async checkConnection(): Promise<boolean> {
     try {
