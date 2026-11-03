@@ -15,21 +15,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout source code
       - name: Checkout Code
         uses: actions/checkout@v6
 
-      # 2. Validate required GitHub secrets
       - name: Validate Secrets
         shell: bash
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+          EC2_USER: ${{ secrets.EC2_USER }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          for secret in DOCKERHUB_USERNAME DOCKERHUB_TOKEN EC2_HOST EC2_USERNAME EC2_SSH_KEY
+          for secret in DOCKERHUB_USERNAME DOCKERHUB_TOKEN EC2_HOST EC2_USER EC2_SSH_KEY
           do
             if [ -z "${!secret}" ]; then
               echo "::error::Missing GitHub secret: $secret"
@@ -37,23 +35,19 @@ jobs:
             fi
           done
 
-      # 3. Login to Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 4. Enable ARM64 support
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
-      # 5. Set up Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # 6. Build ARM64 image and push to Docker Hub
-      - name: Build and Push Docker Image
+      - name: Build and Push ARM64 Docker Image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -64,12 +58,11 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/ci-cd-practice-fe:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/ci-cd-practice-fe:${{ github.sha }}
 
-      # 7. Deploy on EC2
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
+          username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
@@ -78,7 +71,7 @@ jobs:
 
             IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/ci-cd-practice-fe:${{ github.sha }}"
 
-            echo "Pulling ARM64 Docker image..."
+            echo "Pulling Docker image..."
             docker pull "$IMAGE"
 
             echo "Removing old container..."
@@ -91,10 +84,9 @@ jobs:
               -p 80:80 \
               "$IMAGE"
 
-            echo "Waiting for container to start..."
             sleep 5
 
-            echo "Checking container status..."
+            echo "Checking deployment..."
             docker ps --filter "name=java-frontend"
 
             echo "Deployment completed successfully!"
