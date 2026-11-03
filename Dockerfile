@@ -1,17 +1,23 @@
-# Stage 1: Build React application
-FROM node:22-alpine AS build
+
+# Build frontend using GitHub runner's native architecture
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 
 WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm ci
+# Install dependencies
+RUN npm ci --no-audit --no-fund
 
+# Copy source code
 COPY . .
 
+# Build React/Vite application
 RUN npm run build
 
-# Stage 2: Serve using Nginx
+
+# Production stage
+# Buildx will automatically select ARM64 Nginx
 FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
