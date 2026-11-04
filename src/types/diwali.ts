@@ -37,8 +37,26 @@ export interface SubmitScoreRequest {
   chappalsDodged: number
 }
 
+export type StageId = 'LIVING_ROOM' | 'KITCHEN' | 'BEDROOM' | 'MAIN_ENTRANCE'
+
+export interface StageConfig {
+  id: StageId
+  name: string
+  hindiName: string
+  subtitle: string
+  targetScore: number
+  timeLimit: number
+  themeColor: string
+  accentColor: string
+  floorColor: string
+  description: string
+  mummyBriefing: string
+  roomIcon: string
+}
+
 export type ItemType =
   | 'DUST'
+  | 'SPIDERWEB'
   | 'DIYA'
   | 'KAJU_KATLI'
   | 'GOLD_COIN'
@@ -49,13 +67,36 @@ export type ItemType =
 export interface FallingItem {
   id: number
   type: ItemType
-  x: number // percentage 5% to 90%
-  y: number // percentage 0% to 95%
+  x: number // percentage 5% to 88%
+  y: number // percentage -5% to 105%
   speed: number
-  emoji: string
+  width: number
+  height: number
   label: string
   points: number
   isHazard: boolean
+  rotation: number
+  rotationSpeed: number
+  warningTimer?: number // Used for warning indicator before hazards drop
+  warningX?: number
+  // For Sharma Ji zig-zag movement
+  baseX?: number
+  timeAlive?: number
+}
+
+export type AngerLevel = 'CALM' | 'SUSPICIOUS' | 'ANGRY' | 'RAGE'
+
+export interface Particle {
+  id: number
+  x: number
+  y: number
+  vx: number
+  vy: number
+  size: number
+  color: string
+  alpha: number
+  decay: number
+  shape?: 'circle' | 'star' | 'sparkle'
 }
 
 export interface FloatingText {
@@ -64,4 +105,25 @@ export interface FloatingText {
   y: number
   text: string
   color: string
+  opacity: number
+}
+
+export interface GameStats {
+  score: number
+  cleanlinessPercent: number
+  dustCleared: number
+  coinsCollected: number
+  sweetsCollected: number
+  chappalsDodged: number
+  diyasCollected: number
+  timeTaken: number
+  livesRemaining: number
+  stageId: StageId
+  rankTitle: string
+}
+
+export interface SoundSettings {
+  sfxEnabled: boolean
+  musicEnabled: boolean
+  vibrationEnabled: boolean
 }

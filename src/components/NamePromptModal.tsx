@@ -8,7 +8,15 @@ interface NamePromptModalProps {
   onClose?: () => void
 }
 
-const FUN_NICKNAMES = ['Chintu', 'Sonu', 'Guddu', 'Sweety', 'Bunty', 'Rani', 'Bittu']
+const FUN_NICKNAMES = [
+  'Safai Samrat',
+  'Ghar Ka Ladla',
+  'Jhadu Champion',
+  'Mummy Approved',
+  'Chintu',
+  'Guddu',
+  'Sweety',
+]
 
 export const NamePromptModal: FC<NamePromptModalProps> = ({
   isOpen,

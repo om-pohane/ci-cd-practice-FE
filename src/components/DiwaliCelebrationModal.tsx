@@ -1,44 +1,52 @@
 import { useState, type FC } from 'react'
+import type { GameStats, StageId } from '../types/diwali'
 import { sound } from '../utils/sound'
 import { FireworksCanvas } from './FireworksCanvas'
+import { STAGE_ORDER, STAGES } from '../game/stages'
 
 interface DiwaliCelebrationModalProps {
-  score: number
-  kajuKatlis: number
-  diyas: number
-  chappalsDodged: number
+  stats: GameStats
   recipientName: string
   senderName: string
   customMessage?: string
+  currentStageId: StageId
   onPlayAgain: () => void
+  onNextStage?: (nextStage: StageId) => void
   onOpenCreateWish: () => void
   onOpenLeaderboard: () => void
 }
 
 export const DiwaliCelebrationModal: FC<DiwaliCelebrationModalProps> = ({
-  score,
-  kajuKatlis,
-  diyas,
-  chappalsDodged,
+  stats,
   recipientName,
   senderName,
   customMessage,
+  currentStageId,
   onPlayAgain,
+  onNextStage,
   onOpenCreateWish,
   onOpenLeaderboard,
 }) => {
   const [litDiyas, setLitDiyas] = useState<boolean[]>([true, false, false, false, false])
   const [copiedLink, setCopiedLink] = useState(false)
 
-  // Rank Title
-  let rankTitle = '📦 Soan Papdi Collector'
-  if (score >= 1500) {
-    rankTitle = '🏆 Supreme Safai Lord & Mithai King'
-  } else if (score >= 1000) {
-    rankTitle = "🪔 Mummy Ki Shaan & Chappal Dodger"
-  } else if (score >= 500) {
-    rankTitle = '🧹 Certified Safai Sevak'
+  // Calculate dynamic personalized achievement title
+  let achievementTitle = '👑 Safai Samrat'
+  if (stats.cleanlinessPercent >= 100 && stats.livesRemaining === 3) {
+    achievementTitle = '✨ Ghar Ka Superstar & Zero Dust Champion'
+  } else if (stats.chappalsDodged >= 8) {
+    achievementTitle = "👡 Supreme Chappal Dodger & Mummy's Pride"
+  } else if (stats.score >= 2000) {
+    achievementTitle = '🏆 Safai Samrat & Mithai King'
+  } else if (stats.score >= 1200) {
+    achievementTitle = '🪔 Mummy Approved Safai Specialist'
   }
+
+  // Next stage check
+  const currentIdx = STAGE_ORDER.indexOf(currentStageId)
+  const hasNextStage = currentIdx >= 0 && currentIdx < STAGE_ORDER.length - 1
+  const nextStageId = hasNextStage ? STAGE_ORDER[currentIdx + 1] : null
+  const nextStageConfig = nextStageId ? STAGES[nextStageId] : null
 
   const handleLightDiya = (index: number) => {
     if (!litDiyas[index]) {
@@ -53,8 +61,7 @@ export const DiwaliCelebrationModal: FC<DiwaliCelebrationModalProps> = ({
   }
 
   const currentUrl = typeof window !== 'undefined' ? window.location.href : ''
-
-  const shareText = `🪔 I scored ${score} pts in Ghar Ki Safai: Survival Mode and survived Mummy's flying chappal! Check ${senderName}'s Diwali surprise for me and try beating my score: ${currentUrl}`
+  const shareText = `🪔 I scored ${stats.score} pts in "Ghar Ki Safai: Survival Mode", cleared ${stats.dustCleared} dust bunnies, and dodged Mummy's flying chappal! Can you beat my score before Diwali Puja? Check it out here: ${currentUrl}`
 
   const handleWhatsAppShare = () => {
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`
@@ -65,13 +72,13 @@ export const DiwaliCelebrationModal: FC<DiwaliCelebrationModalProps> = ({
     if (navigator.clipboard) {
       navigator.clipboard.writeText(currentUrl)
       setCopiedLink(true)
-      setTimeout(() => setCopiedLink(false), 2000)
+      setTimeout(() => setCopiedLink(false), 2200)
     }
   }
 
   return (
     <div className="celebration-overlay">
-      {/* Background Interactive Fireworks */}
+      {/* Background Interactive Fireworks Canvas */}
       <FireworksCanvas interactive={true} />
 
       <div className="celebration-card-wrapper">
@@ -80,56 +87,86 @@ export const DiwaliCelebrationModal: FC<DiwaliCelebrationModalProps> = ({
           <div className="card-garland">
             <span>🌼</span>
             <span>🌸</span>
-            <span>🪔</span>
-            <span>SHUBH DEEPAVALI</span>
-            <span>🪔</span>
+            <span>🏮</span>
+            <span className="garland-diya-center">🪔 SHUBH DEEPAVALI 🪔</span>
+            <span>🏮</span>
             <span>🌸</span>
             <span>🌼</span>
           </div>
 
-          {/* Achievement Title */}
+          {/* Achievement Award Title */}
           <div className="rank-badge-wrap">
-            <span className="rank-award-title">{rankTitle}</span>
-            <span className="rank-score-highlight">{score} POINTS</span>
-          </div>
-
-          {/* Stats Bar */}
-          <div className="celebration-stats-grid">
-            <div className="mini-stat-box">
-              <span className="mini-stat-icon">🍬</span>
-              <span className="mini-stat-val">{kajuKatlis}</span>
-              <span className="mini-stat-lbl">Kaju Katlis</span>
-            </div>
-            <div className="mini-stat-box">
-              <span className="mini-stat-icon">🪔</span>
-              <span className="mini-stat-val">{diyas}</span>
-              <span className="mini-stat-lbl">Diyas Lit</span>
-            </div>
-            <div className="mini-stat-box">
-              <span className="mini-stat-icon">👡</span>
-              <span className="mini-stat-val">{chappalsDodged}</span>
-              <span className="mini-stat-lbl">Chappals Dodged</span>
+            <span className="rank-award-title">{achievementTitle}</span>
+            <div className="score-and-cleanliness-row">
+              <span className="rank-score-highlight">{stats.score} POINTS</span>
+              <span className="cleanliness-pill-badge">{stats.cleanlinessPercent}% CLEAN</span>
             </div>
           </div>
 
-          {/* Personalized Diwali Message Letter */}
+          {/* Complete Detailed Scorecard Grid */}
+          <div className="scorecard-master-grid">
+            <div className="scorecard-metric-card">
+              <span className="metric-icon">🧹</span>
+              <strong className="metric-num">{stats.dustCleared}</strong>
+              <span className="metric-text">Dust Swept</span>
+            </div>
+
+            <div className="scorecard-metric-card">
+              <span className="metric-icon">🪙</span>
+              <strong className="metric-num">{stats.coinsCollected}</strong>
+              <span className="metric-text">Laxmi Coins</span>
+            </div>
+
+            <div className="scorecard-metric-card">
+              <span className="metric-icon">🍬</span>
+              <strong className="metric-num">{stats.sweetsCollected}</strong>
+              <span className="metric-text">Kaju Katlis</span>
+            </div>
+
+            <div className="scorecard-metric-card">
+              <span className="metric-icon">🪔</span>
+              <strong className="metric-num">{stats.diyasCollected}</strong>
+              <span className="metric-text">Diyas Lit</span>
+            </div>
+
+            <div className="scorecard-metric-card">
+              <span className="metric-icon">👡</span>
+              <strong className="metric-num">{stats.chappalsDodged}</strong>
+              <span className="metric-text">Chappals Dodged</span>
+            </div>
+
+            <div className="scorecard-metric-card">
+              <span className="metric-icon">❤️</span>
+              <strong className="metric-num">{stats.livesRemaining}/3</strong>
+              <span className="metric-text">Lives Left</span>
+            </div>
+          </div>
+
+          {/* Personalized Diwali Blessing Letter */}
           <div className="personal-letter-box">
-            <h2 className="letter-greeting">
-              Happy Diwali, {recipientName || 'My Dear Friend'}! ✨
-            </h2>
+            <div className="letter-header-row">
+              <span className="letter-lamps">🪔✨</span>
+              <h2 className="letter-greeting">
+                Shubh Deepavali, {recipientName || 'Dear Friend'}!
+              </h2>
+              <span className="letter-lamps">✨🪔</span>
+            </div>
             <p className="letter-body">
               {customMessage ||
-                `May this festival of lights bring you and your family abundant happiness, glowing health, boundless prosperity, and endless Kaju Katli — with ZERO flying chappals! Enjoy the holidays to the fullest!`}
+                `May the sacred light of this Diwali fill your days with peace, vibrant good health, golden wealth, and endless boxes of Kaju Katli — without a single flying chappal from Mummy! Wishing you and your whole family an unforgettable celebration!`}
             </p>
             <div className="letter-signature">
-              <span>Warmest Wishes,</span>
-              <strong>— {senderName || 'Om'}</strong>
+              <span>Warmest Festive Wishes,</span>
+              <strong>— {senderName || 'Your Friend'}</strong>
             </div>
           </div>
 
-          {/* Interactive Diya Lighting Ceremony */}
+          {/* Interactive Five-Diya Ceremony */}
           <div className="diya-ceremony-section">
-            <h4 className="ceremony-title">🪔 Light 5 Sacred Diyas of Prosperity</h4>
+            <h4 className="ceremony-title">🪔 Sacred Five-Diya Puja Ceremony</h4>
+            <p className="ceremony-subtitle">
+              Tap each diya below to ignite the 5 divine flames of Health, Wealth, Joy, Wisdom &amp; Love!
+            </p>
             <div className="diyas-row">
               {litDiyas.map((isLit, idx) => (
                 <button
@@ -137,62 +174,84 @@ export const DiwaliCelebrationModal: FC<DiwaliCelebrationModalProps> = ({
                   key={idx}
                   className={`diya-btn ${isLit ? 'diya-lit' : 'diya-unlit'}`}
                   onClick={() => handleLightDiya(idx)}
-                  title={isLit ? 'Diya is glowing' : 'Tap to light diya'}
+                  title={isLit ? 'Diya is radiant' : 'Tap to light diya'}
                 >
                   <span className="diya-flame">{isLit ? '🔥' : '⚪'}</span>
                   <span className="diya-clay">🪔</span>
+                  <span className="diya-number-tag">#{idx + 1}</span>
                 </button>
               ))}
             </div>
-            <p className="ceremony-hint">
-              {litDiyas.every(Boolean)
-                ? '✨ All Diyas Lit! Auspicious blessings unlocked! ✨'
-                : 'Tap unlit diyas above to ignite the festive flames!'}
-            </p>
+
+            <div className="ceremony-status-msg">
+              {litDiyas.every(Boolean) ? (
+                <span className="blessing-unlocked">
+                  ✨ All 5 Sacred Diyas Are Burning Bright! Happy Diwali! ✨
+                </span>
+              ) : (
+                <span className="blessing-pending">
+                  👆 Tap the unlit diyas above to complete the puja ritual!
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="celebration-action-buttons">
-            <button
-              type="button"
-              className="action-btn btn-whatsapp"
-              onClick={handleWhatsAppShare}
-            >
-              <span>📲 Share on WhatsApp</span>
-            </button>
+          {/* Action Buttons: Next Stage / Play Again */}
+          <div className="celebration-actions-row">
+            {hasNextStage && nextStageConfig && onNextStage ? (
+              <button
+                type="button"
+                className="btn-next-stage"
+                onClick={() => onNextStage(nextStageConfig.id)}
+              >
+                <span>CLEAN NEXT ROOM: {nextStageConfig.hindiName} ▶</span>
+              </button>
+            ) : null}
 
             <button
               type="button"
-              className="action-btn btn-play-again"
+              className="btn-play-again"
               onClick={onPlayAgain}
             >
-              <span>🔁 Play Again</span>
+              <span>🔄 PLAY THIS ROOM AGAIN</span>
             </button>
           </div>
 
-          <div className="secondary-action-row">
+          {/* Sharing Buttons: WhatsApp & Copy Link */}
+          <div className="share-actions-group">
             <button
               type="button"
-              className="action-btn btn-secondary"
-              onClick={onOpenCreateWish}
+              className="btn-whatsapp-share"
+              onClick={handleWhatsAppShare}
             >
-              <span>✍️ Create Your Own Wish Link</span>
+              <span>💬 SHARE SCORE ON WHATSAPP</span>
             </button>
 
             <button
               type="button"
-              className="action-btn btn-secondary"
-              onClick={onOpenLeaderboard}
-            >
-              <span>🏆 Hall of Fame</span>
-            </button>
-
-            <button
-              type="button"
-              className="action-btn btn-secondary"
+              className="btn-copy-challenge-link"
               onClick={handleCopyLink}
             >
-              <span>{copiedLink ? '✓ Link Copied!' : '🔗 Copy Link'}</span>
+              <span>{copiedLink ? '✓ LINK COPIED TO CLIPBOARD!' : '🔗 COPY CHALLENGE LINK'}</span>
+            </button>
+          </div>
+
+          {/* Footer Navigation */}
+          <div className="celebration-footer-row">
+            <button
+              type="button"
+              className="btn-footer-secondary"
+              onClick={onOpenLeaderboard}
+            >
+              🏆 View Hall of Fame
+            </button>
+
+            <button
+              type="button"
+              className="btn-footer-secondary"
+              onClick={onOpenCreateWish}
+            >
+              ✍️ Create Custom Wish for a Friend
             </button>
           </div>
         </div>

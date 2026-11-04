@@ -1,70 +1,156 @@
 import { useEffect, useRef, useState, type FC } from 'react'
-import type { FallingItem, FloatingText, ItemType } from '../types/diwali'
+import type { AngerLevel, FallingItem, FloatingText, GameStats, ItemType, Particle, StageConfig } from '../types/diwali'
 import { sound } from '../utils/sound'
+import { PixelRenderer } from '../game/pixelRenderer'
+import { GameHUD } from './GameHUD'
+import { PauseModal } from './PauseModal'
 
 interface GharKiSafaiGameProps {
+  stage: StageConfig
   recipientName: string
-  onGameOver: (stats: {
-    score: number
-    kajuKatlis: number
-    diyas: number
-    chappalsDodged: number
-  }) => void
+  onVictory: (stats: GameStats) => void
+  onGameOver: (stats: GameStats, reason: 'LIVES_LOST' | 'TIME_OUT') => void
+  onQuitToMenu: () => void
+  onOpenSettings: () => void
 }
 
-const ITEM_DEFS: Record<
+const ITEM_CONFIGS: Record<
   ItemType,
-  { emoji: string; label: string; points: number; isHazard: boolean; baseSpeed: number }
+  { label: string; points: number; isHazard: boolean; baseSpeed: number }
 > = {
-  DUST: { emoji: '🧹', label: 'Dust Bunny', points: 30, isHazard: false, baseSpeed: 0.65 },
-  DIYA: { emoji: '🪔', label: 'Golden Diya', points: 60, isHazard: false, baseSpeed: 0.7 },
-  KAJU_KATLI: { emoji: '🍬', label: 'Kaju Katli', points: 100, isHazard: false, baseSpeed: 0.8 },
-  GOLD_COIN: { emoji: '🪙', label: 'Laxmi Coin', points: 150, isHazard: false, baseSpeed: 0.85 },
-  CHAPPAL: { emoji: '👡', label: "Mummy's Chappal", points: 0, isHazard: true, baseSpeed: 0.9 },
-  SOAN_PAPDI: { emoji: '📦', label: 'Soan Papdi', points: -50, isHazard: true, baseSpeed: 0.75 },
-  SHARMA_JI: { emoji: '👨‍💼', label: 'Sharma Ji', points: 0, isHazard: true, baseSpeed: 0.85 },
+  DUST: { label: 'Dust Bunny', points: 30, isHazard: false, baseSpeed: 0.65 },
+  SPIDERWEB: { label: 'Spiderweb', points: 40, isHazard: false, baseSpeed: 0.6 },
+  GOLD_COIN: { label: 'Laxmi Coin', points: 150, isHazard: false, baseSpeed: 0.8 },
+  KAJU_KATLI: { label: 'Kaju Katli', points: 100, isHazard: false, baseSpeed: 0.85 },
+  DIYA: { label: 'Sacred Diya', points: 60, isHazard: false, baseSpeed: 0.7 },
+  CHAPPAL: { label: "Mummy's Chappal", points: 0, isHazard: true, baseSpeed: 0.95 },
+  SOAN_PAPDI: { label: 'Re-Gifted Soan Papdi', points: -50, isHazard: true, baseSpeed: 0.75 },
+  SHARMA_JI: { label: 'Sharma Ji Ka Beta', points: 0, isHazard: true, baseSpeed: 0.9 },
 }
 
 export const GharKiSafaiGame: FC<GharKiSafaiGameProps> = ({
+  stage,
   recipientName,
+  onVictory,
   onGameOver,
+  onQuitToMenu,
+  onOpenSettings,
 }) => {
-  const [score, setScore] = useState(0)
-  const [lives, setLives] = useState(3)
-  const [combo, setCombo] = useState(1)
-  const [timeLeft, setTimeLeft] = useState(45)
-  const [isSpeedBoost, setIsSpeedBoost] = useState(false)
-  const [screenShake, setScreenShake] = useState(false)
-  const [playerX, setPlayerX] = useState(45) // percentage 5 to 85
-  const [playerFacing, setPlayerFacing] = useState<'left' | 'right'>('right')
-  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([])
+  // Canvas refs
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const rendererRef = useRef<PixelRenderer | null>(null)
 
-  // Stats tracking
+  // Core Game State
+  const [score, setScore] = useState(0)
+  const [combo, setCombo] = useState(1)
+  const [lives, setLives] = useState(3)
+  const [timeLeft, setTimeLeft] = useState(stage.timeLimit)
+  const [isPaused, setIsPaused] = useState(false)
+  const [isSpeedBoost, setIsSpeedBoost] = useState(false)
+  const [speedBoostRemaining, setSpeedBoostRemaining] = useState(0)
+  const [isSlowed, setIsSlowed] = useState(false)
+  const [isHurt, setIsHurt] = useState(false)
+  const [screenShake, setScreenShake] = useState(false)
+
+  // Player position: percent 6% to 86%
+  const [playerX, setPlayerX] = useState(48)
+  const [playerFacing, setPlayerFacing] = useState<'left' | 'right'>('right')
+
+  // Anger Meter State
+  const [anger, setAnger] = useState(10)
+  const [diyasCollected, setDiyasCollected] = useState(0)
+
+  const angerLevel: AngerLevel =
+    anger >= 85 ? 'RAGE' : anger >= 60 ? 'ANGRY' : anger >= 35 ? 'SUSPICIOUS' : 'CALM'
+  const angerWarning =
+    angerLevel === 'RAGE'
+      ? 'CHAPPAL RAGE! Haath tez chalao, warna flying chappal aayegi!! 🔥'
+      : angerLevel === 'ANGRY'
+      ? 'Sharma ji ke bete ko dekho, unka pura ghar chamak raha hai!'
+      : angerLevel === 'SUSPICIOUS'
+      ? 'Diwali guests are almost here! Sweep faster!'
+      : 'Shaabash! Keep sweeping, Mummy is watching happily!'
+
+  // Floating text & particles
+  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([])
+  const particlesRef = useRef<Particle[]>([])
+
+  // Items tracking
+  const itemsRef = useRef<FallingItem[]>([])
+  const itemIdCounter = useRef(1)
+
+  // Detailed statistics tracking
   const statsRef = useRef({
-    kajuKatlis: 0,
-    diyas: 0,
+    dustCleared: 0,
+    coinsCollected: 0,
+    sweetsCollected: 0,
+    diyasCollected: 0,
     chappalsDodged: 0,
+    startTime: 0,
   })
 
-  const itemsRef = useRef<FallingItem[]>([])
-  const [items, setItems] = useState<FallingItem[]>([])
+  useEffect(() => {
+    statsRef.current.startTime = Date.now()
+  }, [])
 
+  // Keyboard state
   const keysPressed = useRef<{ left: boolean; right: boolean }>({ left: false, right: false })
   const gameLoopRef = useRef<number | null>(null)
-  const itemIdCounter = useRef(1)
+
+  // Cleanliness percentage
+  const cleanlinessPercent = Math.min(100, Math.floor((score / stage.targetScore) * 100))
 
   // Floating text trigger
   const addFloatingText = (x: number, y: number, text: string, color: string) => {
     const id = Date.now() + Math.random()
-    setFloatingTexts((prev) => [...prev, { id, x, y, text, color }])
+    setFloatingTexts((prev) => [...prev, { id, x, y, text, color, opacity: 1 }])
     setTimeout(() => {
       setFloatingTexts((prev) => prev.filter((item) => item.id !== id))
-    }, 900)
+    }, 950)
   }
 
-  // Keyboard controls
+  // Spawn particle explosion
+  const spawnParticles = (x: number, y: number, color: string, count = 8, shape: 'circle' | 'star' = 'circle') => {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2
+      const speed = Math.random() * 3 + 1
+      particlesRef.current.push({
+        id: Math.random(),
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 1.5,
+        size: Math.random() * 4 + 2,
+        color,
+        alpha: 1,
+        decay: Math.random() * 0.03 + 0.02,
+        shape,
+      })
+    }
+  }
+
+  // Handle Tab Visibility Change (auto-pause if user switches tab)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setIsPaused(true)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
+  // Keyboard Listener: Left, Right, A, D, Space (Pause)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.key === 'p' || e.key === 'P') {
+        e.preventDefault()
+        setIsPaused((p) => !p)
+        return
+      }
+
+      if (isPaused) return
+
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
         keysPressed.current.left = true
         setPlayerFacing('left')
@@ -89,10 +175,12 @@ export const GharKiSafaiGame: FC<GharKiSafaiGameProps> = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [])
+  }, [isPaused])
 
-  // 1-second countdown clock
+  // 1-Second Countdown Timer
   useEffect(() => {
+    if (isPaused) return
+
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -101,158 +189,305 @@ export const GharKiSafaiGame: FC<GharKiSafaiGameProps> = ({
         }
         return prev - 1
       })
+
+      // Passive Mummy Anger growth over time
+      setAnger((a) => Math.min(100, a + 0.6))
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [])
+  }, [isPaused])
 
-  // Check Game Over
+  // Check Game Over & Victory Conditions
   useEffect(() => {
-    if (lives <= 0 || timeLeft <= 0) {
+    const timeTaken = Math.round((Date.now() - statsRef.current.startTime) / 1000)
+    const finalStats: GameStats = {
+      score,
+      cleanlinessPercent,
+      dustCleared: statsRef.current.dustCleared,
+      coinsCollected: statsRef.current.coinsCollected,
+      sweetsCollected: statsRef.current.sweetsCollected,
+      chappalsDodged: statsRef.current.chappalsDodged,
+      diyasCollected: statsRef.current.diyasCollected,
+      timeTaken,
+      livesRemaining: lives,
+      stageId: stage.id,
+      rankTitle: 'Safai Samrat',
+    }
+
+    // 1. Victory: Target score reached
+    if (score >= stage.targetScore) {
       if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current)
       sound.playVictoryFanfare()
-      onGameOver({
-        score,
-        kajuKatlis: statsRef.current.kajuKatlis,
-        diyas: statsRef.current.diyas,
-        chappalsDodged: statsRef.current.chappalsDodged,
-      })
+      onVictory(finalStats)
+      return
     }
-  }, [lives, timeLeft, score, onGameOver])
 
-  // Main 60 FPS Game Loop
+    // 2. Game Over: Lives Lost
+    if (lives <= 0) {
+      if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current)
+      sound.playGameOver()
+      onGameOver(finalStats, 'LIVES_LOST')
+      return
+    }
+
+    // 3. Game Over: Time Expired without meeting target
+    if (timeLeft <= 0) {
+      if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current)
+      if (cleanlinessPercent >= 100) {
+        sound.playVictoryFanfare()
+        onVictory(finalStats)
+      } else {
+        sound.playGameOver()
+        onGameOver(finalStats, 'TIME_OUT')
+      }
+    }
+  }, [lives, timeLeft, score, cleanlinessPercent, stage, onVictory, onGameOver])
+
+  // Main 60 FPS Delta-Time Canvas Game Loop
   useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    rendererRef.current = new PixelRenderer(ctx, canvas.width, canvas.height)
+
     let lastSpawnTime = Date.now()
     let lastBoostEndTime = 0
+    let lastSlowEndTime = 0
+    let lastTime = performance.now()
 
-    const loop = () => {
+    const loop = (currentTime: number) => {
+      if (isPaused) {
+        gameLoopRef.current = requestAnimationFrame(loop)
+        return
+      }
+
+      const dt = Math.min(32, currentTime - lastTime) / 16.66 // Normalized delta-time (1.0 at 60fps)
+      lastTime = currentTime
       const now = Date.now()
 
-      // Player Movement from Keyboard
-      const moveSpeed = isSpeedBoost ? 1.6 : 1.1
+      // Canvas dimensions
+      const width = canvas.width
+      const height = canvas.height
+      rendererRef.current?.resize(width, height)
+
+      // 1. Player Movement from Keyboard
+      const baseMoveSpeed = isSpeedBoost ? 1.7 : isSlowed ? 0.6 : 1.15
       setPlayerX((prev) => {
         let next = prev
         if (keysPressed.current.left) {
-          next = Math.max(4, prev - moveSpeed)
+          next = Math.max(6, prev - baseMoveSpeed * dt)
         }
         if (keysPressed.current.right) {
-          next = Math.min(86, prev + moveSpeed)
+          next = Math.min(88, prev + baseMoveSpeed * dt)
         }
         return next
       })
 
-      // Spawn falling items
-      const spawnInterval = Math.max(480, 950 - Math.min(score, 1500) * 0.3)
+      // 2. Spawn items based on spawn interval (affected by anger level)
+      const angerSpeedMultiplier = angerLevel === 'RAGE' ? 1.4 : angerLevel === 'ANGRY' ? 1.2 : 1.0
+      const spawnInterval = Math.max(380, (920 - Math.min(score, 2500) * 0.22) / angerSpeedMultiplier)
+
       if (now - lastSpawnTime > spawnInterval) {
         lastSpawnTime = now
 
-        // Pick item with weights
+        // Pick item with dynamic weights
         const roll = Math.random()
         let type: ItemType
         if (roll < 0.28) type = 'DUST'
-        else if (roll < 0.48) type = 'DIYA'
-        else if (roll < 0.62) type = 'KAJU_KATLI'
-        else if (roll < 0.72) type = 'GOLD_COIN'
-        else if (roll < 0.86) type = 'CHAPPAL'
-        else if (roll < 0.94) type = 'SOAN_PAPDI'
+        else if (roll < 0.42) type = 'SPIDERWEB'
+        else if (roll < 0.58) type = 'DIYA'
+        else if (roll < 0.70) type = 'GOLD_COIN'
+        else if (roll < 0.80) type = 'KAJU_KATLI'
+        else if (roll < 0.90) type = 'CHAPPAL'
+        else if (roll < 0.96) type = 'SOAN_PAPDI'
         else type = 'SHARMA_JI'
 
-        const def = ITEM_DEFS[type]
+        const cfg = ITEM_CONFIGS[type]
+        const spawnX = Math.random() * 78 + 8 // 8% to 86%
         const newItem: FallingItem = {
           id: itemIdCounter.current++,
           type,
-          x: Math.random() * 78 + 6, // 6% to 84%
-          y: -4,
-          speed: def.baseSpeed + Math.random() * 0.25 + Math.min(score, 1200) * 0.0003,
-          emoji: def.emoji,
-          label: def.label,
-          points: def.points,
-          isHazard: def.isHazard,
+          x: spawnX,
+          y: -6,
+          speed: (cfg.baseSpeed + Math.random() * 0.25) * angerSpeedMultiplier,
+          width: 28,
+          height: 28,
+          label: cfg.label,
+          points: cfg.points,
+          isHazard: cfg.isHazard,
+          rotation: 0,
+          rotationSpeed: type === 'CHAPPAL' ? 0.12 : type === 'GOLD_COIN' ? 0.05 : 0,
+          baseX: spawnX,
+          timeAlive: 0,
         }
 
         itemsRef.current.push(newItem)
       }
 
-      // Check speed boost expiration
-      if (isSpeedBoost && now > lastBoostEndTime) {
-        setIsSpeedBoost(false)
+      // 3. Speed Boost Expiration
+      if (isSpeedBoost) {
+        const remaining = Math.max(0, (lastBoostEndTime - now) / 1000)
+        setSpeedBoostRemaining(remaining)
+        if (now > lastBoostEndTime) {
+          setIsSpeedBoost(false)
+        }
       }
 
-      // Move & Collide Items
+      // 4. Slowdown Expiration
+      if (isSlowed && now > lastSlowEndTime) {
+        setIsSlowed(false)
+      }
+
+      // 5. Update Falling Items & Collision Detection
       const remainingItems: FallingItem[] = []
       const currentItems = itemsRef.current
 
       for (let i = 0; i < currentItems.length; i++) {
         const item = currentItems[i]
-        item.y += item.speed
+        item.y += item.speed * dt
+        item.rotation += item.rotationSpeed * dt
+        item.timeAlive = (item.timeAlive || 0) + 0.05
 
-        // Hit detection zone near player (y ~ 74% to 86%)
-        if (item.y >= 74 && item.y <= 86) {
+        // Sharma Ji Ka Beta Zigzag oscillation
+        if (item.type === 'SHARMA_JI' && item.baseX !== undefined) {
+          item.x = Math.max(8, Math.min(86, item.baseX + Math.sin(item.timeAlive * 3.5) * 14))
+        }
+
+        // Collision Zone near Player (y ~ 70% to 80%)
+        if (item.y >= 70 && item.y <= 81) {
           const distance = Math.abs(item.x - playerX)
-          if (distance < 9.5) {
-            // Collision!
+          if (distance < 9.0) {
+            // COLLISION OCCURRED!
+            const screenX = (item.x / 100) * width
+            const screenY = (item.y / 100) * height
+
             if (item.isHazard) {
-              // HAZARD HIT!
+              // HAZARD IMPACT
               if (item.type === 'CHAPPAL') {
                 sound.playChappal()
                 setLives((l) => Math.max(0, l - 1))
                 setCombo(1)
+                setIsHurt(true)
                 setScreenShake(true)
-                setTimeout(() => setScreenShake(false), 300)
-                addFloatingText(playerX, 70, "OUCH! Mummy's Chappal! -1 ❤️", '#ff3b30')
+                setAnger((a) => Math.min(100, a + 12)) // Chappal hit raises Mummy's anger!
+                spawnParticles(screenX, screenY, '#ff3b30', 12, 'star')
+                setTimeout(() => {
+                  setIsHurt(false)
+                  setScreenShake(false)
+                }, 350)
+                addFloatingText(playerX, 68, "OUCH! Mummy's Chappal! -1 ❤️", '#ff3b30')
               } else if (item.type === 'SOAN_PAPDI') {
                 sound.playSoanPapdi()
                 setScore((s) => Math.max(0, s - 50))
                 setCombo(1)
-                addFloatingText(playerX, 70, 'Re-Gifted Soan Papdi! -50', '#ff9500')
+                setIsSlowed(true)
+                lastSlowEndTime = now + 3000
+                spawnParticles(screenX, screenY, '#ff9500', 8)
+                addFloatingText(playerX, 68, 'Re-Gifted Soan Papdi! -50 (Slowed!)', '#ff9500')
               } else if (item.type === 'SHARMA_JI') {
                 sound.playSharmaJi()
                 setLives((l) => Math.max(0, l - 1))
                 setCombo(1)
+                setIsHurt(true)
                 setScreenShake(true)
-                setTimeout(() => setScreenShake(false), 400)
-                addFloatingText(playerX, 70, 'Package Kitna Hai?! -1 ❤️', '#ff2d55')
+                spawnParticles(screenX, screenY, '#ff2d55', 14, 'star')
+                setTimeout(() => {
+                  setIsHurt(false)
+                  setScreenShake(false)
+                }, 380)
+                addFloatingText(playerX, 68, 'Sharma Ji: Package Kitna Hai?! -1 ❤️', '#ff2d55')
               }
             } else {
-              // BENEFICIAL ITEM COLLECTED!
-              if (item.type === 'DUST') {
-                sound.playCatch()
-                addFloatingText(item.x, item.y, `+${item.points * combo}`, '#30d158')
-              } else if (item.type === 'DIYA') {
-                sound.playDiya()
-                statsRef.current.diyas += 1
-                addFloatingText(item.x, item.y, `+${item.points * combo} Diya Lit! 🪔`, '#ffd60a')
+              // BENEFICIAL COLLECTIBLE PICKUP!
+              if (item.type === 'DUST' || item.type === 'SPIDERWEB') {
+                sound.playBroomSweep()
+                statsRef.current.dustCleared += 1
+                setAnger((a) => Math.max(0, a - 3.5)) // Cleaning calms Mummy down!
+                spawnParticles(screenX, screenY, '#bdc3c7', 6)
+                addFloatingText(item.x, item.y, `+${item.points * combo} Swept! 🧹`, '#30d158')
+              } else if (item.type === 'GOLD_COIN') {
+                sound.playCoin()
+                statsRef.current.coinsCollected += 1
+                spawnParticles(screenX, screenY, '#ffd700', 10, 'star')
+                addFloatingText(item.x, item.y, `+${item.points * combo} Laxmi Coin! 🪙`, '#ffd700')
               } else if (item.type === 'KAJU_KATLI') {
                 sound.playKaju()
-                statsRef.current.kajuKatlis += 1
+                statsRef.current.sweetsCollected += 1
                 setIsSpeedBoost(true)
                 lastBoostEndTime = now + 4000
-                addFloatingText(item.x, item.y, `+${item.points * combo} KAJU RUSH! 🍬⚡`, '#bf5af2')
-              } else if (item.type === 'GOLD_COIN') {
+                spawnParticles(screenX, screenY, '#ffffff', 12, 'star')
+                addFloatingText(item.x, item.y, `+${item.points * combo} KAJU SPEED RUSH! 🍬⚡`, '#bf5af2')
+              } else if (item.type === 'DIYA') {
                 sound.playDiya()
-                addFloatingText(item.x, item.y, `+${item.points * combo} Laxmi Coin! 🪙`, '#ffcc00')
+                statsRef.current.diyasCollected += 1
+                setDiyasCollected((d) => d + 1)
+                setAnger((a) => Math.max(0, a - 5.0))
+                spawnParticles(screenX, screenY, '#ff9900', 10, 'star')
+                addFloatingText(item.x, item.y, `+${item.points * combo} Diya Lit! 🪔`, '#ffcc00')
               }
 
               setScore((s) => s + item.points * combo)
-              setCombo((c) => Math.min(5, c + 1))
+              setCombo((c) => Math.min(6, c + 1))
             }
             continue // Item absorbed
           }
         }
 
-        // Passed safely past bottom
+        // Passed safely past bottom of room
         if (item.y > 96) {
           if (item.type === 'CHAPPAL' || item.type === 'SHARMA_JI') {
             statsRef.current.chappalsDodged += 1
+          } else if (item.type === 'DUST' || item.type === 'SPIDERWEB') {
+            // Unswept dirt accumulates and angers Mummy!
+            setAnger((a) => Math.min(100, a + 2.5))
           }
-          continue // Item removed off-screen
+          continue // Item removed
         }
 
         remainingItems.push(item)
       }
 
       itemsRef.current = remainingItems
-      setItems([...remainingItems])
+
+      // 6. Update Active Particles
+      const activeParticles: Particle[] = []
+      for (let p = 0; p < particlesRef.current.length; p++) {
+        const pt = particlesRef.current[p]
+        pt.x += pt.vx * dt
+        pt.y += pt.vy * dt
+        pt.alpha -= pt.decay * dt
+        if (pt.alpha > 0) {
+          activeParticles.push(pt)
+        }
+      }
+      particlesRef.current = activeParticles
+
+      // 7. RENDER FRAME
+      if (rendererRef.current) {
+        // Clear & Draw Background
+        rendererRef.current.renderBackground(stage)
+
+        // Draw Falling Items
+        for (let j = 0; j < remainingItems.length; j++) {
+          rendererRef.current.renderFallingItem(remainingItems[j])
+        }
+
+        // Draw Player with Broom
+        const playerScreenX = (playerX / 100) * width
+        rendererRef.current.renderPlayer(
+          playerScreenX,
+          playerFacing,
+          isSpeedBoost,
+          isSlowed,
+          isHurt,
+          recipientName
+        )
+
+        // Draw Active Particles
+        rendererRef.current.renderParticles(activeParticles)
+      }
 
       gameLoopRef.current = requestAnimationFrame(loop)
     }
@@ -262,84 +497,56 @@ export const GharKiSafaiGame: FC<GharKiSafaiGameProps> = ({
     return () => {
       if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current)
     }
-  }, [playerX, isSpeedBoost, score, combo])
+  }, [playerX, playerFacing, isHurt, isPaused, isSpeedBoost, isSlowed, score, combo, angerLevel, stage, recipientName])
 
-  // Direct Touch Drag on Mobile
+  // Direct Mobile Touch Drag
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isPaused) return
     if (e.touches.length > 0) {
       const touch = e.touches[0]
       const rect = e.currentTarget.getBoundingClientRect()
       const touchX = touch.clientX - rect.left
       const percent = (touchX / rect.width) * 100
       setPlayerFacing(percent > playerX ? 'right' : 'left')
-      setPlayerX(Math.max(4, Math.min(86, percent)))
+      setPlayerX(Math.max(6, Math.min(88, percent)))
     }
+  }
+
+  const handleRestart = () => {
+    setScore(0)
+    setLives(3)
+    setCombo(1)
+    setTimeLeft(stage.timeLimit)
+    setAnger(10)
+    itemsRef.current = []
+    particlesRef.current = []
+    setIsPaused(false)
   }
 
   return (
     <div
-      className={`safai-game-stage ${screenShake ? 'screen-shake' : ''}`}
+      className={`safai-arcade-stage ${screenShake ? 'screen-shake' : ''}`}
       onTouchMove={handleTouchMove}
     >
-      {/* Decorative Toran & Marigold Garlands */}
-      <div className="game-garland-row">
-        <span className="garland-flower">🌼</span>
-        <span className="garland-kandil">🏮</span>
-        <span className="garland-flower">🌸</span>
-        <span className="garland-kandil">🪔</span>
-        <span className="garland-flower">🌼</span>
-        <span className="garland-kandil">🏮</span>
-        <span className="garland-flower">🌸</span>
-      </div>
+      {/* Top Game HUD */}
+      <GameHUD
+        score={score}
+        combo={combo}
+        lives={lives}
+        timeLeft={timeLeft}
+        cleanlinessPercent={cleanlinessPercent}
+        anger={anger}
+        angerLevel={angerLevel}
+        angerWarning={angerWarning}
+        diyasCollected={diyasCollected}
+        isSpeedBoost={isSpeedBoost}
+        speedBoostTimeLeft={speedBoostRemaining}
+        isSlowed={isSlowed}
+        stage={stage}
+        onPause={() => setIsPaused(true)}
+      />
 
-      {/* Top Arcade HUD */}
-      <div className="game-hud-bar">
-        {/* Lives */}
-        <div className="hud-metric hud-lives">
-          <span className="hud-label">LIVES</span>
-          <div className="hearts-wrap">
-            {[1, 2, 3].map((heart) => (
-              <span
-                key={heart}
-                className={`heart-icon ${heart <= lives ? 'heart-full' : 'heart-empty'}`}
-              >
-                ❤️
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Score & Combo */}
-        <div className="hud-metric hud-score">
-          <span className="hud-label">SAFAI SCORE</span>
-          <span className="score-val">{score}</span>
-          {combo > 1 && <span className="combo-pill">x{combo} COMBO!</span>}
-        </div>
-
-        {/* Time Left */}
-        <div className="hud-metric hud-timer">
-          <span className="hud-label">PUJA TIME</span>
-          <span className={`timer-val ${timeLeft <= 10 ? 'timer-urgent' : ''}`}>
-            {timeLeft}s
-          </span>
-        </div>
-      </div>
-
-      {/* Cleanliness Progress Meter */}
-      <div className="safai-meter-wrap">
-        <div className="meter-label-row">
-          <span>🧹 GHAR KI SAFAI PROGRESS</span>
-          <span>{Math.min(100, Math.floor((score / 1500) * 100))}%</span>
-        </div>
-        <div className="meter-track">
-          <div
-            className="meter-fill"
-            style={{ width: `${Math.min(100, (score / 1500) * 100)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Floating Score/Comic Texts */}
+      {/* Floating Comic Score Texts */}
       {floatingTexts.map((ft) => (
         <div
           key={ft.id}
@@ -354,50 +561,23 @@ export const GharKiSafaiGame: FC<GharKiSafaiGameProps> = ({
         </div>
       ))}
 
-      {/* Falling Items Canvas Area */}
-      <div className="falling-items-layer">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className={`falling-item ${item.isHazard ? 'item-hazard' : 'item-good'}`}
-            style={{
-              left: `${item.x}%`,
-              top: `${item.y}%`,
-            }}
-          >
-            <span className="item-emoji">{item.emoji}</span>
-            <span className="item-label-chip">{item.label}</span>
-          </div>
-        ))}
+      {/* Main 60 FPS HTML5 Pixel Canvas */}
+      <div className="canvas-viewport-wrapper">
+        <canvas
+          ref={canvasRef}
+          width={480}
+          height={560}
+          className="arcade-game-canvas"
+        />
       </div>
 
-      {/* Floor with Indian Rangoli Texture */}
-      <div className="room-floor-base">
-        <div className="floor-rangoli-center">💮</div>
-      </div>
-
-      {/* Player Character */}
-      <div
-        className={`player-character ${isSpeedBoost ? 'player-boosted' : ''}`}
-        style={{
-          left: `${playerX}%`,
-          transform: playerFacing === 'left' ? 'scaleX(-1)' : 'scaleX(1)',
-        }}
-      >
-        {isSpeedBoost && <div className="kaju-boost-sparkles">✨⚡✨</div>}
-        <div className="kid-sprite">
-          <span className="kid-avatar">🏃</span>
-          <span className="kid-broom">🧹</span>
-        </div>
-        <div className="kid-name-tag">{recipientName || 'You'}</div>
-      </div>
-
-      {/* Mobile On-Screen Tactile Touch Controls */}
-      <div className="mobile-touch-controls">
+      {/* Mobile On-Screen Tactile Controls */}
+      <div className="mobile-touch-paddles-row">
         <button
           type="button"
-          className="touch-btn touch-btn-left"
+          className="tactile-paddle paddle-left"
           onPointerDown={() => {
+            sound.triggerVibration(15)
             keysPressed.current.left = true
             setPlayerFacing('left')
           }}
@@ -413,8 +593,9 @@ export const GharKiSafaiGame: FC<GharKiSafaiGameProps> = ({
 
         <button
           type="button"
-          className="touch-btn touch-btn-right"
+          className="tactile-paddle paddle-right"
           onPointerDown={() => {
+            sound.triggerVibration(15)
             keysPressed.current.right = true
             setPlayerFacing('right')
           }}
@@ -429,10 +610,19 @@ export const GharKiSafaiGame: FC<GharKiSafaiGameProps> = ({
         </button>
       </div>
 
-      {/* Bottom Sub-notice */}
-      <div className="game-bottom-hint">
+      {/* Bottom Hint */}
+      <div className="arcade-bottom-status-strip">
         <span>💡 Catch Sweets &amp; Diyas, Dodge Mummy's Chappal &amp; Sharma Ji!</span>
       </div>
+
+      {/* Pause Modal */}
+      <PauseModal
+        isOpen={isPaused}
+        onResume={() => setIsPaused(false)}
+        onRestart={handleRestart}
+        onOpenSettings={onOpenSettings}
+        onQuitToMenu={onQuitToMenu}
+      />
     </div>
   )
 }

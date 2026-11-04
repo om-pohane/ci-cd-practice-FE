@@ -1,11 +1,17 @@
 import { useEffect, useState, type FC } from 'react'
+import type { GameStats, StageId } from '../types/diwali'
 import { api } from '../services/api'
 import { sound } from '../utils/sound'
+import { STAGES } from '../game/stages'
+import { WelcomeScreen } from '../components/WelcomeScreen'
+import { NamePromptModal } from '../components/NamePromptModal'
+import { MummyBriefingModal } from '../components/MummyBriefingModal'
 import { GharKiSafaiGame } from '../components/GharKiSafaiGame'
 import { DiwaliCelebrationModal } from '../components/DiwaliCelebrationModal'
+import { GameOverModal } from '../components/GameOverModal'
 import { CreateWishModal } from '../components/CreateWishModal'
 import { LeaderboardModal } from '../components/LeaderboardModal'
-import { NamePromptModal } from '../components/NamePromptModal'
+import { SettingsModal } from '../components/SettingsModal'
 
 export const DiwaliGamePage: FC = () => {
   // Query parameters state & Player Name
@@ -17,14 +23,24 @@ export const DiwaliGamePage: FC = () => {
     if (stored && stored.trim()) return stored.trim()
     return ''
   })
+
   const [senderName, setSenderName] = useState(() => {
     if (typeof window === 'undefined') return 'Om'
     return new URLSearchParams(window.location.search).get('from') || 'Om'
   })
+
   const [customMessage, setCustomMessage] = useState('')
   const [wishCode] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null
     return new URLSearchParams(window.location.search).get('code')
+  })
+
+  // Selected Stage / Room
+  const [selectedStage, setSelectedStage] = useState<StageId>(() => {
+    if (typeof window === 'undefined') return 'LIVING_ROOM'
+    const roomParam = new URLSearchParams(window.location.search).get('room') as StageId
+    if (roomParam && STAGES[roomParam]) return roomParam
+    return 'LIVING_ROOM'
   })
 
   // Ask player for name right at beginning if not set in URL or storage
@@ -37,27 +53,40 @@ export const DiwaliGamePage: FC = () => {
     return true // Prompt upfront!
   })
 
-  // Game state
-  const [gameState, setGameState] = useState<'IDLE' | 'PLAYING' | 'CELEBRATION'>(() => {
-    if (typeof window === 'undefined') return 'IDLE'
+  // Game state flow: WELCOME -> BRIEFING -> PLAYING -> CELEBRATION / GAMEOVER
+  const [gameState, setGameState] = useState<
+    'WELCOME' | 'BRIEFING' | 'PLAYING' | 'CELEBRATION' | 'GAMEOVER'
+  >(() => {
+    if (typeof window === 'undefined') return 'WELCOME'
     const preview = new URLSearchParams(window.location.search).get('preview')
     if (preview === 'celebration') return 'CELEBRATION'
     if (preview === 'game') return 'PLAYING'
-    return 'IDLE'
-  })
-  const [lastGameStats, setLastGameStats] = useState(() => {
-    if (typeof window === 'undefined') return { score: 0, kajuKatlis: 0, diyas: 0, chappalsDodged: 0 }
-    const preview = new URLSearchParams(window.location.search).get('preview')
-    if (preview === 'celebration') {
-      return { score: 1420, kajuKatlis: 12, diyas: 16, chappalsDodged: 21 }
-    }
-    return { score: 0, kajuKatlis: 0, diyas: 0, chappalsDodged: 0 }
+    if (preview === 'gameover') return 'GAMEOVER'
+    if (preview === 'briefing') return 'BRIEFING'
+    return 'WELCOME'
   })
 
-  // Modals
+  // Last game statistics
+  const [lastGameStats, setLastGameStats] = useState<GameStats>(() => ({
+    score: 1420,
+    cleanlinessPercent: 100,
+    dustCleared: 22,
+    coinsCollected: 6,
+    sweetsCollected: 5,
+    diyasCollected: 8,
+    chappalsDodged: 14,
+    timeTaken: 38,
+    livesRemaining: 2,
+    stageId: 'LIVING_ROOM',
+    rankTitle: 'Safai Samrat',
+  }))
+
+  const [gameOverReason, setGameOverReason] = useState<'LIVES_LOST' | 'TIME_OUT'>('LIVES_LOST')
+
+  // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
-  const [isMuted, setIsMuted] = useState(sound.isMuted())
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   // Fetch wish details if code present
   useEffect(() => {
@@ -74,7 +103,7 @@ export const DiwaliGamePage: FC = () => {
         }
       })
       .catch(() => {
-        // Fallback to query params
+        // Fallback gracefully to query params
       })
 
     return () => {
@@ -90,21 +119,22 @@ export const DiwaliGamePage: FC = () => {
     setIsNameModalOpen(false)
   }
 
-  const handleStartGame = () => {
+  const handleStartMission = () => {
     if (!recipientName.trim()) {
       setIsNameModalOpen(true)
       return
     }
     sound.playDiya()
-    setGameState('PLAYING')
+    setGameState('BRIEFING')
   }
 
-  const handleGameOver = async (stats: {
-    score: number
-    kajuKatlis: number
-    diyas: number
-    chappalsDodged: number
-  }) => {
+  const handleStartGameplayFromBriefing = () => {
+    setGameState('PLAYING')
+    sound.startBgm()
+  }
+
+  const handleVictory = async (stats: GameStats) => {
+    sound.stopBgm()
     setLastGameStats(stats)
     setGameState('CELEBRATION')
 
@@ -114,8 +144,8 @@ export const DiwaliGamePage: FC = () => {
         playerName: recipientName || 'Anonymous Sweeper',
         wishCode: wishCode || undefined,
         score: stats.score,
-        kajuKatlis: stats.kajuKatlis,
-        diyas: stats.diyas,
+        kajuKatlis: stats.sweetsCollected,
+        diyas: stats.diyasCollected,
         chappalsDodged: stats.chappalsDodged,
       })
     } catch {
@@ -123,29 +153,38 @@ export const DiwaliGamePage: FC = () => {
     }
   }
 
-  const handleToggleSound = () => {
-    const next = sound.toggleMute()
-    setIsMuted(next)
+  const handleGameOver = (stats: GameStats, reason: 'LIVES_LOST' | 'TIME_OUT') => {
+    sound.stopBgm()
+    setLastGameStats(stats)
+    setGameOverReason(reason)
+    setGameState('GAMEOVER')
   }
+
+  const handleNextStage = (nextStage: StageId) => {
+    setSelectedStage(nextStage)
+    setGameState('BRIEFING')
+  }
+
+  const currentStageConfig = STAGES[selectedStage]
 
   return (
     <div className="diwali-app-container">
-      {/* Background Ambience: Hanging Torans & Lanterns */}
+      {/* Decorative Hanging Torans Header */}
       <div className="ambient-header-toran">
         <div className="toran-row">
           <span>🌸</span>
           <span>🏮</span>
           <span>🌼</span>
-          <span>🪔</span>
+          <span className="toran-diya-glow">🪔</span>
           <span>🌸</span>
           <span>🏮</span>
           <span>🌼</span>
         </div>
       </div>
 
-      {/* Main Responsive Game Viewport */}
+      {/* Main Responsive Game Viewport Card */}
       <div className="game-viewport-card">
-        {/* Top Controls Toolbar */}
+        {/* Top Header Branding Toolbar */}
         <div className="viewport-top-bar">
           <div className="logo-badge">
             <span className="logo-diya">🪔</span>
@@ -155,11 +194,11 @@ export const DiwaliGamePage: FC = () => {
           <div className="top-bar-actions">
             <button
               type="button"
-              className="icon-btn-sound"
-              onClick={handleToggleSound}
-              title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+              className="icon-btn-settings-top"
+              onClick={() => setIsSettingsOpen(true)}
+              title="Settings & Audio"
             >
-              {isMuted ? '🔇' : '🔊'}
+              ⚙️
             </button>
 
             <button
@@ -172,163 +211,84 @@ export const DiwaliGamePage: FC = () => {
           </div>
         </div>
 
-        {/* 1. START / BRIEFING SCREEN */}
-        {gameState === 'IDLE' && (
-          <div className="game-start-screen">
-            {/* Player Identity Bar */}
-            <div className="player-identity-bar">
-              <div className="identity-left">
-                <span className="identity-avatar">👤</span>
-                <div className="identity-text">
-                  <span className="identity-tag">Player Name:</span>
-                  <strong className="identity-name">{recipientName || 'Name Not Set'}</strong>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="btn-edit-identity"
-                onClick={() => setIsNameModalOpen(true)}
-              >
-                ✏️ Change
-              </button>
-            </div>
-
-            {/* Mummy's Order Callout */}
-            <div className="mummy-order-banner">
-              <span className="mummy-icon">👩‍👧‍👦</span>
-              <div className="mummy-text-content">
-                <h4 className="mummy-headline">
-                  MUMMY'S ORDER FOR {recipientName ? recipientName.toUpperCase() : 'YOU'}!
-                </h4>
-                <p className="mummy-sub">
-                  "Pehle ghar ki safai poori karo, warna Diwali puja me no Kaju Katli!"
-                </p>
-                <div className="sent-by-tag">— Sent with love by {senderName}</div>
-              </div>
-            </div>
-
-            {/* Game Title */}
-            <div className="game-hero-title">
-              <h1 className="hero-text">GHAR KI SAFAI</h1>
-              <span className="hero-badge">SURVIVAL MODE 🧹✨</span>
-            </div>
-
-            {/* Mission Rules Grid */}
-            <div className="rules-legend-grid">
-              <div className="rule-item rule-collect">
-                <span className="rule-emoji">🧹</span>
-                <div className="rule-info">
-                  <strong>Dust Bunny</strong>
-                  <span>+30 pts</span>
-                </div>
-              </div>
-
-              <div className="rule-item rule-collect">
-                <span className="rule-emoji">🪔</span>
-                <div className="rule-info">
-                  <strong>Golden Diya</strong>
-                  <span>+60 pts</span>
-                </div>
-              </div>
-
-              <div className="rule-item rule-collect">
-                <span className="rule-emoji">🍬</span>
-                <div className="rule-info">
-                  <strong>Kaju Katli</strong>
-                  <span>+100 pts + SPEED</span>
-                </div>
-              </div>
-
-              <div className="rule-item rule-hazard">
-                <span className="rule-emoji">👡</span>
-                <div className="rule-info">
-                  <strong>Mummy's Chappal</strong>
-                  <span>-1 ❤️ OUCH!</span>
-                </div>
-              </div>
-
-              <div className="rule-item rule-hazard">
-                <span className="rule-emoji">📦</span>
-                <div className="rule-info">
-                  <strong>Soan Papdi</strong>
-                  <span>-50 pts (Re-gifted!)</span>
-                </div>
-              </div>
-
-              <div className="rule-item rule-hazard">
-                <span className="rule-emoji">👨‍💼</span>
-                <div className="rule-info">
-                  <strong>Sharma Ji</strong>
-                  <span>-1 ❤️ (Package Kitna?)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Controls Explanation */}
-            <div className="controls-hint-card">
-              <span className="controls-icon">🎮</span>
-              <span>
-                <strong>Mobile:</strong> Tap left/right buttons or drag finger. <br />
-                <strong>Desktop:</strong> Use Arrow Keys (← / →) or A / D.
-              </span>
-            </div>
-
-            {/* Giant Start Button */}
-            <button
-              type="button"
-              className="btn-start-safai"
-              onClick={handleStartGame}
-            >
-              <span className="btn-icon">🧹</span>
-              <span className="btn-label">START SAFAI MISSION</span>
-            </button>
-
-            {/* Footer Buttons */}
-            <div className="start-screen-footer">
-              <button
-                type="button"
-                className="btn-footer-link"
-                onClick={() => setIsLeaderboardOpen(true)}
-              >
-                🏆 View Hall of Fame
-              </button>
-              <button
-                type="button"
-                className="btn-footer-link"
-                onClick={() => setIsCreateModalOpen(true)}
-              >
-                ✍️ Make Wish for Someone Else
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 2. ACTIVE GAME SCREEN */}
-        {gameState === 'PLAYING' && (
-          <GharKiSafaiGame
-            recipientName={recipientName}
-            onGameOver={handleGameOver}
+        {/* 1. WELCOME / START SCREEN */}
+        {gameState === 'WELCOME' && (
+          <WelcomeScreen
+            playerName={recipientName}
+            senderName={senderName}
+            selectedStage={selectedStage}
+            onSelectStage={setSelectedStage}
+            onOpenNamePrompt={() => setIsNameModalOpen(true)}
+            onStartGame={handleStartMission}
+            onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
+            onOpenCreateWish={() => setIsCreateModalOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         )}
 
-        {/* 3. POST-GAME CELEBRATION MODAL */}
+        {/* 2. MUMMY'S MISSION BRIEFING */}
+        {gameState === 'BRIEFING' && (
+          <MummyBriefingModal
+            isOpen={true}
+            stage={currentStageConfig}
+            playerName={recipientName}
+            senderName={senderName}
+            onStart={handleStartGameplayFromBriefing}
+          />
+        )}
+
+        {/* 3. ACTIVE ARCADE CANVAS GAMEPLAY */}
+        {gameState === 'PLAYING' && (
+          <GharKiSafaiGame
+            stage={currentStageConfig}
+            recipientName={recipientName}
+            onVictory={handleVictory}
+            onGameOver={handleGameOver}
+            onQuitToMenu={() => {
+              sound.stopBgm()
+              setGameState('WELCOME')
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        )}
+
+        {/* 4. POST-GAME VICTORY & DIWALI CELEBRATION */}
         {gameState === 'CELEBRATION' && (
           <DiwaliCelebrationModal
-            score={lastGameStats.score}
-            kajuKatlis={lastGameStats.kajuKatlis}
-            diyas={lastGameStats.diyas}
-            chappalsDodged={lastGameStats.chappalsDodged}
+            stats={lastGameStats}
             recipientName={recipientName}
             senderName={senderName}
             customMessage={customMessage}
-            onPlayAgain={() => setGameState('PLAYING')}
+            currentStageId={selectedStage}
+            onPlayAgain={() => {
+              sound.playDiya()
+              setGameState('PLAYING')
+              sound.startBgm()
+            }}
+            onNextStage={handleNextStage}
             onOpenCreateWish={() => setIsCreateModalOpen(true)}
             onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
           />
         )}
+
+        {/* 5. GAME OVER / MUMMY'S SCOLDING SCREEN */}
+        {gameState === 'GAMEOVER' && (
+          <GameOverModal
+            isOpen={true}
+            stats={lastGameStats}
+            playerName={recipientName}
+            reason={gameOverReason}
+            onRetry={() => {
+              sound.playDiya()
+              setGameState('PLAYING')
+              sound.startBgm()
+            }}
+            onMainMenu={() => setGameState('WELCOME')}
+          />
+        )}
       </div>
 
-      {/* Floating Modals */}
+      {/* Modals */}
       <NamePromptModal
         key={recipientName || 'new-player'}
         isOpen={isNameModalOpen}
@@ -349,6 +309,11 @@ export const DiwaliGamePage: FC = () => {
       <LeaderboardModal
         isOpen={isLeaderboardOpen}
         onClose={() => setIsLeaderboardOpen(false)}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
       />
     </div>
   )
